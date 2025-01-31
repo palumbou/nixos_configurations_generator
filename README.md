@@ -8,7 +8,7 @@ This script facilitates modifying NixOS configuration files templates.
 At the moment, it is quite basic and performs a few main tasks:
 
 1. **Rename Template Folder**  
-   - Renames the `nixos_configs_template` folder to `nixos_configs`.
+   - Renames the `nixos_configs_template` folder to `nixos_configs` in `another_nixos_configurations_template` folder.
 
 2. **Rename Template Files**  
    - Recursively searches for all files ending with `.template` inside the `nixos_configs` folder.  

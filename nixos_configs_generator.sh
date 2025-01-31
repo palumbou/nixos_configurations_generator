@@ -74,6 +74,15 @@ sed -i "s|\${DICTIONARY}|$dictionary|g" "nixos_configs/users/$username/${usernam
 sed -i "s|\${BASEURL}|$BASEURL|g" "nixos_configs/users/$username/${username}.nix"
 sed -i "s|\${USER_PWD}|$USER_PWD|g" "nixos_configs/users/$username/${username}.nix"
 
+# Ask if the user should be imported into the host configuration
+read -p "Do you want to import the user into the host '$HOSTNAME' configuration? (y/n): " import_user
+if [[ "$import_user" =~ ^[Yy]$ ]]; then
+  sed -i "s|../../users/XYZ/user.nix|../../users/$username/${username}.nix|g" "nixos_configs/hosts/$HOSTNAME/configuration.nix"
+  echo "User $username successfully imported into $HOSTNAME configuration."
+else
+  echo "Skipping user import into $HOSTNAME configuration."
+fi
+
 # Notify the user of successful completion
 echo "Script completed successfully."
 exit 0
