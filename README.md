@@ -1,5 +1,7 @@
 # NixOS Configurations Generator
 
+> **Available languages**: [English (current)](README.md) | [Italiano](README.it.md)
+
 **Notice**: This script depends on the files in the  
 [another_nixos_configurations_template](https://github.com/palumbou/another_nixos_configurations_template) repository.  
 Please read the **README** there before proceeding with this script.
@@ -35,9 +37,9 @@ At the moment, it is quite basic and performs a few main tasks:
 6. **Duplicate Host Folder**  
    - Copies the `ABC` folder inside `nixos_configs/hosts/` and renames the copy to the specified hostname.
 
-7. **Set `BASEURL`**  
-   - Calculates `BASEURL` as the current working directory minus the `nixos_configs_generator` folder.  
-   - Replaces all occurrences of `${BASEURL}` with this value in `nm_configurations.nix`.
+7. **Set `BASEPATHNM`**  
+   - Calculates `BASEPATHNM` as the current working directory minus the `nixos_configs_generator` folder.  
+   - Replaces all occurrences of `${BASEPATHNM}` with this value in `nm_configurations.nix`.
 
 8. **Replace Hostname in Files**  
    - Replaces `${HOSTNAME}` with the input hostname in all files within the new host folder.
@@ -54,7 +56,7 @@ At the moment, it is quite basic and performs a few main tasks:
     - Within `<username>.nix`, substitutes:
       - `${USER}` with the provided username  
       - `${DICTIONARY}` with the `DICTIONARY` value from `env.conf`  
-      - `${BASEURL}` with the calculated `BASEURL`
+      - `${BASEPATHUSER}` with the calculated `BASEPATHUSER`
 
 Finally, the script exits with `exit 0`.
 
@@ -62,8 +64,7 @@ Finally, the script exits with `exit 0`.
 
 ## Usage
 
-1. **Download** the files from the  
-   [another_nixos_configurations_template](https://github.com/palumbou/another_nixos_configurations_template) repository.  
+1. **Download** the files from the [another_nixos_configurations_template](https://github.com/palumbou/another_nixos_configurations_template) repository or let the script automatically clone the repository.
 2. **Edit** the `env.conf` file with the desired values.  
 3. **Download** the `nixos_configs_generator.sh` script.  
 4. **Check** that it has execution permissions.  
