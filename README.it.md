@@ -7,11 +7,11 @@
 Leggi il **README** presente in quel repository prima di utilizzare questo script.
 
 Questo script automatizza la personalizzazione dei template dei file di configurazione di NixOS.
-È allineato al branch **25.11** del repository template; è possibile selezionare un branch
+È allineato al branch **26.05** del repository template; è possibile selezionare un branch
 diverso passandolo come primo argomento:
 
 ```bash
-./nixos_configs_generator.sh 25.05
+./nixos_configs_generator.sh 25.11
 ```
 
 Svolge le seguenti operazioni:
@@ -81,7 +81,7 @@ Infine, lo script stampa i passaggi manuali rimanenti e termina con `exit 0`.
 
 ## Utilizzo
 
-1. **Scarica** i file dal repository [another_nixos_configurations_template](https://github.com/palumbou/another_nixos_configurations_template) (branch **25.11**) o lascia che sia lo script a effettuare automaticamente il clone del repository.
+1. **Scarica** i file dal repository [another_nixos_configurations_template](https://github.com/palumbou/another_nixos_configurations_template) (branch **26.05**) o lascia che sia lo script a effettuare automaticamente il clone del repository.
 2. **Modifica** il file `env.conf` con i valori desiderati.
 3. **Scarica** lo script `nixos_configs_generator.sh`.
 4. **Verifica** che lo script abbia i permessi di esecuzione.

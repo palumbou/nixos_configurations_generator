@@ -5,11 +5,11 @@
 set -euo pipefail
 
 # Define the repository URL, directory and branch.
-# The branch matches a template release (e.g. 25.11); it can be overridden
-# by passing it as the first argument: ./nixos_configs_generator.sh 25.05
+# The branch matches a template release (e.g. 26.05); it can be overridden
+# by passing it as the first argument: ./nixos_configs_generator.sh 25.11
 REPO_URL="https://github.com/palumbou/another_nixos_configurations_template"
 REPO_DIR="another_nixos_configurations_template"
-REPO_BRANCH="${1:-25.11}"
+REPO_BRANCH="${1:-26.05}"
 
 # Check if the repository directory exists at the same level as the script
 if [[ -d "$REPO_DIR" ]]; then
