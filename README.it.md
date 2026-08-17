@@ -25,6 +25,7 @@ Svolge le seguenti operazioni:
 3. **Rinomina file template**
    - Cerca ricorsivamente tutti i file che terminano con `.template` nella cartella `nixos_configs`.
    - Rinomina ciascun file rimuovendo il suffisso `.template`.
+   - I template relativi a sops (`.sops.yaml.template` e `secrets/common.yaml.template`) mantengono di proposito il suffisso: rinominarli/copiarli fa parte del setup dei segreti descritto in `common/config/SECRETS.it.md` del template.
 
 4. **Carica variabili d'ambiente**
    - Legge il file `env.conf` (nella root del repository template), che deve contenere variabili d'ambiente nel formato:
@@ -34,7 +35,7 @@ Svolge le seguenti operazioni:
    - Verifica che tutte le variabili usate dai template siano definite e le rende disponibili per la sostituzione.
 
 5. **Sostituisce variabili**
-   - Sostituisce (tramite `sed`) solo le variabili elencate — così le interpolazioni `${...}` proprie di Nix restano intatte — nei seguenti file:
+   - Sostituisce (tramite `sed`) solo le variabili elencate - così le interpolazioni `${...}` proprie di Nix restano intatte - nei seguenti file:
      - `nixos_configs/common/config/system.nix`: `${TIMEZONE}`, `${DEFAULT_LOCALE}`, `${KEY_LAYOUT}`, `${CONSOLE_KEY_LAYOUT}`
      - `nixos_configs/common/gui/hyprland.nix`: `${FONT}`
      - `nixos_configs/common/packages/default_packages_services.nix`: `${SSH_PORT}`
@@ -49,7 +50,6 @@ Svolge le seguenti operazioni:
    - Nella nuova cartella host sostituisce:
      - `${HOSTNAME}` con l'hostname scelto (`configuration.nix`)
      - `${NIXOS_VERSION}` con il valore di `env.conf` (`system.stateVersion` in `configuration.nix`)
-     - `${BASEPATHNM}` con il valore di `env.conf` (`nm_configurations.nix`)
      - `${DISK_DEVICE}` con il valore di `env.conf` (esempio di configurazione disco)
 
 8. **Layout disco opzionale**
@@ -57,12 +57,12 @@ Svolge le seguenti operazioni:
 
 9. **Chiede username e password**
    - Chiede all'utente di inserire un nome utente (il valore `USER` di `env.conf` viene proposto come default) e lo valida come nome utente Linux valido.
-   - Se `USER_PWD` in `env.conf` contiene ancora il placeholder `<HASHED_PASSWORD>`, chiede la password (con conferma) e genera un hash SHA-512 usando `mkpasswd`, `openssl` o `python3` (quello disponibile). Se `USER_PWD` contiene già un hash reale, viene usato così com'è e la password non viene richiesta.
+   - Facoltativamente chiede la password (con conferma), genera un hash SHA-512 usando `mkpasswd`, `openssl` o `python3` (quello disponibile) e lo salva come valore di `user_hashedPassword` in `secrets/common.yaml.template`. L'hash non entra mai nei file `.nix`: all'attivazione `user.nix` lo legge dal file `secrets/common.yaml` cifrato con sops, che viene creato da quel template durante il setup dei segreti (vedi `common/config/SECRETS.it.md` del template).
 
 10. **Duplica cartella utente**
     - Copia la cartella `XYZ` dentro `nixos_configs/users/` e la rinomina con il nome utente specificato.
     - Rinomina il file `user.nix` in `<username>.nix` nella nuova cartella utente.
-    - Nel file `<username>.nix` sostituisce `${USER}`, `${DICTIONARY}`, `${BASEPATHUSER}` e `${USER_PWD}`.
+    - Nel file `<username>.nix` sostituisce `${USER}`, `${DICTIONARY}` e `${BASEPATHUSER}`.
 
 11. **Importa l'utente nell'host**
     - Facoltativamente sostituisce l'import `../../users/XYZ/user.nix` nel `configuration.nix` dell'host con il nuovo file utente.
@@ -75,7 +75,7 @@ Infine, lo script stampa i passaggi manuali rimanenti e termina con `exit 0`.
 
 - `bash`
 - `git` (opzionale: serve solo per clonare/aggiornare automaticamente il repository template)
-- uno tra `mkpasswd`, `openssl` o `python3` (solo se l'hash della password non è già impostato in `env.conf`; nota che il modulo `crypt` usato dal fallback `python3` è stato rimosso in Python 3.13)
+- uno tra `mkpasswd`, `openssl` o `python3` (solo se lasci che sia lo script a generare l'hash della password; nota che il modulo `crypt` usato dal fallback `python3` è stato rimosso in Python 3.13)
 
 ---
 
@@ -95,7 +95,9 @@ Lo script prepara i file, ma alcune scelte restano manuali (vedi l'**HOWTO** del
 
 - abilitare gli import desiderati in `nixos_configs/hosts/<hostname>/configuration.nix` (GUI: Gnome/KDE/Hyprland, gaming, workstation, Syncthing, monitor esterno, GRUB, layout disco Disko, Secure Boot, ...);
 - impostare il device del bootloader (o la configurazione Disko/hardware) per la propria macchina;
-- personalizzare `syncthing.nix`, `nm_configurations.nix`, i dotfiles e gli altri moduli opzionali.
+- configurare i segreti seguendo `common/config/SECRETS.it.md` del template: generare la chiave age admin, rinominare `.sops.yaml.template` in `.sops.yaml` e inserire le chiavi, poi copiare `secrets/common.yaml.template` in `secrets/common.yaml`, compilare i valori (PSK WiFi, hash della password se non generato dallo script) e cifrarlo con sops;
+- dichiarare le reti WiFi di ogni host nel suo `nm_configurations.nix` (le PSK sono referenziate come variabili `$WIFI_*` dal file dei segreti cifrato);
+- personalizzare `syncthing.nix`, i dotfiles e gli altri moduli opzionali.
 
 ---
 

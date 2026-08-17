@@ -84,8 +84,12 @@ if [[ ! -d "nixos_configs" ]]; then
   exit 1
 fi
 
-# Remove the ".template" suffix from all files in the directory tree
-find nixos_configs -type f -name "*.template" | while read -r file; do
+# Remove the ".template" suffix from all files in the directory tree.
+# The sops-related templates keep their suffix on purpose: renaming/copying
+# them is part of the secrets setup described in common/config/SECRETS.md
+# (and it avoids creating a plaintext secrets/common.yaml automatically).
+find nixos_configs -type f -name "*.template" \
+  ! -name ".sops.yaml.template" ! -path "*/secrets/*" | while read -r file; do
   mv "$file" "${file%.template}"
 done
 
@@ -99,7 +103,7 @@ fi
 
 # Verify that every variable used by the templates is defined in env.conf
 for var in KEY_LAYOUT FONT SSH_PORT TIMEZONE DEFAULT_LOCALE CONSOLE_KEY_LAYOUT \
-           NIXOS_VERSION HOSTNAME DISK_DEVICE BASEPATHNM USER DICTIONARY BASEPATHUSER; do
+           NIXOS_VERSION HOSTNAME DISK_DEVICE USER DICTIONARY BASEPATHUSER; do
   if [[ -z "${!var:-}" ]]; then
     echo "Error: variable '$var' is not defined in env.conf. Exiting."
     exit 1
@@ -144,12 +148,11 @@ fi
 cp -r nixos_configs/hosts/ABC "nixos_configs/hosts/$HOSTNAME"
 
 # Replace the variables in the new host folder:
-# ${HOSTNAME} and ${NIXOS_VERSION} in configuration.nix, ${BASEPATHNM} in
-# nm_configurations.nix and ${DISK_DEVICE} in the disk configuration example
+# ${HOSTNAME} and ${NIXOS_VERSION} in configuration.nix and ${DISK_DEVICE}
+# in the disk configuration example
 find "nixos_configs/hosts/$HOSTNAME" -type f -exec sed -i \
   -e "s|\${HOSTNAME}|$HOSTNAME|g" \
   -e "s|\${NIXOS_VERSION}|$NIXOS_VERSION|g" \
-  -e "s|\${BASEPATHNM}|$BASEPATHNM|g" \
   -e "s|\${DISK_DEVICE}|$DISK_DEVICE|g" {} \;
 
 # Optionally copy a disk (Disko) layout from "hosts/disk_configurations" into the host folder
@@ -177,11 +180,13 @@ if [[ ! "$username" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
   exit 1
 fi
 
-# Use the hashed password from env.conf if provided, otherwise prompt for a
-# password and generate the hash with mkpasswd, openssl, or python3
-if [[ "$USER_PWD" != "<HASHED_PASSWORD>" ]]; then
-  echo "Using the hashed password defined in env.conf (USER_PWD)."
-else
+# The user's password hash no longer lives in the .nix files: it is read at
+# activation from the sops-encrypted secrets/common.yaml (key
+# "user_hashedPassword", see common/config/SECRETS.md). Optionally generate
+# the hash now and store it in the plaintext secrets/common.yaml.template,
+# ready to be copied and encrypted during the secrets setup.
+read -p "Do you want to generate the password hash for '$username' now and store it in 'secrets/common.yaml.template'? (y/n): " gen_hash
+if [[ "$gen_hash" =~ ^[Yy]$ ]]; then
   # Prompt for the user's password twice and validate
   while true; do
     read -sp "Enter the password for $username: " password1
@@ -222,6 +227,13 @@ else
     echo "Error: No suitable tool found to generate the password hash. Exiting."
     exit 1
   fi
+  # The hash may contain characters that are special in a sed replacement: escape them
+  escaped_pwd=$(printf '%s' "$USER_PWD" | sed 's/[&|\\]/\\&/g')
+  sed -i "s|^user_hashedPassword:.*|user_hashedPassword: $escaped_pwd|" nixos_configs/secrets/common.yaml.template
+  echo "Hash stored in 'nixos_configs/secrets/common.yaml.template'."
+  echo "Remember to copy it to 'secrets/common.yaml' and encrypt it with sops (see common/config/SECRETS.md)."
+else
+  echo "Skipping: generate it later with 'mkpasswd -m sha-512' and store it with 'sops secrets/common.yaml' (see common/config/SECRETS.md)."
 fi
 
 # Copy the "XYZ" folder to the new username folder
@@ -234,15 +246,14 @@ cp -r nixos_configs/users/XYZ "nixos_configs/users/$username"
 # Rename the file "user.nix" to "<username>.nix"
 mv "nixos_configs/users/$username/user.nix" "nixos_configs/users/$username/${username}.nix"
 
-# Replace variables ${USER}, ${DICTIONARY}, ${BASEPATHUSER}, and ${USER_PWD} in the renamed file
+# Replace variables ${USER}, ${DICTIONARY} and ${BASEPATHUSER} in the renamed
+# file (the password hash is not substituted here: user.nix reads it from the
+# sops-encrypted secrets file at activation)
 sed -i \
   -e "s|\${USER}|$username|g" \
   -e "s|\${DICTIONARY}|$DICTIONARY|g" \
   -e "s|\${BASEPATHUSER}|$BASEPATHUSER|g" \
   "nixos_configs/users/$username/${username}.nix"
-# The hash may contain characters that are special in a sed replacement: escape them
-escaped_pwd=$(printf '%s' "$USER_PWD" | sed 's/[&|\\]/\\&/g')
-sed -i "s|\${USER_PWD}|$escaped_pwd|g" "nixos_configs/users/$username/${username}.nix"
 
 # Ask if the user should be imported into the host configuration
 read -p "Do you want to import the user into the host '$HOSTNAME' configuration? (y/n): " import_user
@@ -261,4 +272,9 @@ echo "  - review 'nixos_configs/hosts/$HOSTNAME/configuration.nix' and enable th
 echo "    imports (GUI: Gnome/KDE/Hyprland, gaming, workstation, Syncthing, external"
 echo "    monitor, GRUB, Disko disk layout, Secure Boot, ...)"
 echo "  - set the bootloader device or the Disko/hardware configuration for your machine"
+echo "  - set up the secrets (see 'nixos_configs/common/config/SECRETS.md'): generate the"
+echo "    admin age key, rename '.sops.yaml.template' to '.sops.yaml' and fill in the keys,"
+echo "    then copy 'secrets/common.yaml.template' to 'secrets/common.yaml', fill in the"
+echo "    values (WiFi PSKs, password hash) and encrypt it with sops"
+echo "  - declare the WiFi networks of the host in 'nm_configurations.nix'"
 exit 0
