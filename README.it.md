@@ -1,106 +1,157 @@
 # NixOS Configurations Generator
 
-> **Lingue disponibili**: [English](README.md) | [Italiano (corrente)](README.it.md)
+> **Lingue**: [English](README.md) | [Italiano](README.it.md)
 
-**Nota**: Questo script dipende dai file presenti nel repository
-[another_nixos_configurations_template](https://github.com/palumbou/another_nixos_configurations_template).
-Leggi il **README** presente in quel repository prima di utilizzare questo script.
+Questo strumento usa i file del repository separato [another_nixos_configurations_template](https://github.com/palumbou/another_nixos_configurations_template) per preparare una configurazione NixOS in una directory isolata. Supporta `hosts/client/ABC`, `hosts/server/ABC`, i ruoli base/client/server, amministratore e account operativo separati e funzionalità opzionali indipendenti.
 
-Questo script automatizza la personalizzazione dei template dei file di configurazione di NixOS.
-È allineato al branch **26.05** del repository template; è possibile selezionare un branch
-diverso passandolo come primo argomento:
+Il launcher è pensato per Linux su `x86_64` e `aarch64`, anche su macchine senza NixOS, Nix, Python o Git installati. Usa un `nix-shell` disponibile oppure recupera la release fissata di `nix-portable` quando Nix è assente. In entrambi i casi, [runtime.nix](runtime.nix) prepara Python, Git, Nix, Bash, coreutils e certificati CA da una revisione fissata di Nixpkgs 26.05. Python usa soltanto la libreria standard. L'intero generatore viene eseguito in questo ambiente, compresi i processi Nix e la lettura dei cataloghi; non vengono installati pacchetti nel sistema ospitante e non viene usato `sudo`.
+
+Per il bootstrap servono Bash e le normali coreutils, incluso `sha256sum`. Quando l'eseguibile portabile non è già in cache, serve anche `curl` oppure `wget`. Il launcher scarica `nix-portable` **v012** per l'architettura ospitante, verifica il suo SHA256 fissato e lo conserva sotto `${XDG_CACHE_HOME:-$HOME/.cache}/nixos-configurations-generator/nix-portable/v012/ARCH/nix-portable`. Il runtime upstream mantiene stato e store in `~/.nix-portable` per impostazione predefinita; la sua variabile `NP_LOCATION` permette di scegliere un'altra directory padre. La connessione Internet serve per i download iniziali e quando sorgenti o pacchetti necessari non sono già in cache. Questo bootstrap non è un pacchetto offline.
+
+Il runtime imposta `NIX_PATH` sulla propria sorgente Nixpkgs fissata, quindi le verifiche non dipendono dai canali configurati sull'host. Il template continua a essere scaricato separatamente dal branch scelto. Lo stesso launcher accetta `--help`, `--list-features` e gli argomenti di generazione; preparare l'ambiente può richiedere download anche per la guida o l'elenco delle funzionalità.
+
+La variabile d'ambiente `NIXOS_GENERATOR_RUNTIME` sceglie il bootstrap:
+
+| Valore | Comportamento |
+|---|---|
+| `auto` (predefinito) | Usa un `nix-shell` trovato sull'host; altrimenti usa nix-portable. |
+| `native` | Richiede il `nix-shell` dell'host; si interrompe se non è disponibile. |
+| `portable` | Usa nix-portable anche quando Nix è già installato sull'host. |
+
+Per esempio, `NIXOS_GENERATOR_RUNTIME=portable ./nixos_configs_generator.sh --help` sceglie l'ambiente portabile. È una variabile del launcher, non un parametro del template per `--set` o `env.conf`. Ogni modalità entra nell'ambiente Nix dichiarato; un Python installato sull'host non lo sostituisce.
+
+La cartella di output viene creata con un’unica operazione tramite `renameat2` di Linux, senza sovrascrivere una destinazione esistente, anche se creata contemporaneamente da un altro processo. La verifica valuta NixOS senza compilare o attivare un sistema operativo. Lo strumento non esegue Disko, installazioni, attivazioni o `nixos-rebuild`.
+
+## Client e server
 
 ```bash
-./nixos_configs_generator.sh 25.11
+./nixos_configs_generator.sh \
+  --template-dir /percorso/another_nixos_configurations_template \
+  --output /percorso/nuovo-client \
+  --set HOSTNAME=desk --set HOST_ROLE=client --set DESKTOP=kde \
+  --set FEATURES=development,photo_editing
+
+./nixos_configs_generator.sh \
+  --template-dir /percorso/another_nixos_configurations_template \
+  --output /percorso/nuovo-server \
+  --set HOST_ROLE=server --set HOSTNAME=node \
+  --set SSH_ALLOWED_CIDRS=192.0.2.0/24,2001:db8::/64 \
+  --set DISK_LAYOUT=btrfs-worker-luks --set DISK_DEVICE=/dev/disk/by-id/EXAMPLE \
+  --set ENABLE_SNAPSHOTS=true --set ENABLE_SCRUB=true \
+  --set ENABLE_RDP=true --set ENABLE_BATTERY=true \
+  --set FEATURES=development,distrobox,virtualization_tools,libvirt
 ```
 
-Svolge le seguenti operazioni:
+La directory di output deve essere nuova e la sua directory padre deve esistere. Sorgenti e input rimangono invariati. I file vengono preparati e verificati in una cartella temporanea; solo se i controlli passano, l’intera cartella viene spostata nel percorso indicato con `--output`. Non viene eseguito codice shell da `env.conf`.
 
-1. **Recupera il repository template**
-   - Usa la cartella `another_nixos_configurations_template` se già presente accanto allo script (aggiornandola facoltativamente al branch selezionato), altrimenti clona il branch selezionato da GitHub oppure chiede il percorso di una copia scaricata manualmente.
+Senza `--template-dir` viene scaricata una copia temporanea nuova del repository, dal branch `26.05` o da `--branch NOME`. Viene accettata la struttura client/server documentata.
 
-2. **Rinomina la cartella template**
-   - Rinomina la cartella `nixos_configs_template` in `nixos_configs` all'interno della cartella `another_nixos_configurations_template`.
+Sostituisci gli indirizzi e identificativi disco di esempio con quelli della destinazione. `HOST_ROLE=server` sceglie la categoria server. Un server usa `DESKTOP=none`; Xfce/RDP resta una scelta separata. La politica batteria server appartiene all'host, senza importare quella client. Parametri build/zram vuoti derivano dal ruolo: client `4/0`, `30/lz4`; server `2/4`, `50/zstd`. Valori espliciti prevalgono.
 
-3. **Rinomina file template**
-   - Cerca ricorsivamente tutti i file che terminano con `.template` nella cartella `nixos_configs`.
-   - Rinomina ciascun file rimuovendo il suffisso `.template`.
-   - I template relativi a sops (`.sops.yaml.template` e `secrets/common.yaml.template`) mantengono di proposito il suffisso: rinominarli/copiarli fa parte del setup dei segreti descritto in `common/config/SECRETS.it.md` del template.
+I file dell'amministratore conservano i nomi `admin.nix` e `client.nix`, dentro `users/ADMIN_USER/`. Il server aggiunge `users/WORKER_USER/worker.nix`. Nomi non validi, collisioni UID/GID e percorsi non sicuri vengono rifiutati. Sono riservati nomi di servizi/gruppi come syncthing, docker, libvirtd e nixbld, inclusi gli account build numerati. UID/GID devono essere tra 1000 e 60000, escludendo la fascia Nix build riservata 30000..31000. Gli import puntano alle directory scelte.
 
-4. **Carica variabili d'ambiente**
-   - Legge il file `env.conf` (nella root del repository template), che deve contenere variabili d'ambiente nel formato:
-     ```bash
-     export KEY=value
-     ```
-   - Verifica che tutte le variabili usate dai template siano definite e le rende disponibili per la sostituzione.
+I percorsi di lavoro vengono normalizzati prima dei controlli. `WORK_ROOT` non può sovrapporsi a directory di sistema, home degli account o stato Syncthing; la cartella dati Syncthing non può contenere la configurazione/database né esserne contenuta. Il percorso predefinito `/srv/worker/data` resta separato dallo stato del servizio.
 
-5. **Sostituisce variabili**
-   - Sostituisce (tramite `sed`) solo le variabili elencate - così le interpolazioni `${...}` proprie di Nix restano intatte - nei seguenti file:
-     - `nixos_configs/common/config/system.nix`: `${TIMEZONE}`, `${DEFAULT_LOCALE}`, `${KEY_LAYOUT}`, `${CONSOLE_KEY_LAYOUT}`
-     - `nixos_configs/common/gui/hyprland.nix`: `${FONT}`
-     - `nixos_configs/common/packages/default_packages_services.nix`: `${SSH_PORT}`
-   - Sostituisce `${DISK_DEVICE}` in tutti i template disco (Disko) presenti in `nixos_configs/hosts/disk_configurations/`.
+## Parametri e scelte
 
-6. **Chiede l'hostname**
-   - Richiede all'utente di inserire un hostname (il valore `HOSTNAME` di `env.conf` viene proposto come default).
-   - Valida che l'hostname corrisponda a un pattern valido (senza caratteri non consentiti).
+I valori di `env.conf` nel template sono le impostazioni iniziali. `--env-file PERCORSO` li sovrascrive; ogni `--set CHIAVE=VALORE` prevale su entrambi. I file vengono letti come dati, senza espansioni shell. Nomi sconosciuti, assegnazioni duplicate nello stesso file, enum, booleani, reti o valori numerici non validi interrompono la preparazione senza creare la cartella di output. Usa soltanto dati pubblici: niente password, hash, PSK o chiavi private nei parametri.
 
-7. **Duplica cartella host**
-   - Copia la cartella `ABC` dentro `nixos_configs/hosts/` e rinomina la copia usando l'hostname specificato.
-   - Nella nuova cartella host sostituisce:
-     - `${HOSTNAME}` con l'hostname scelto (`configuration.nix`)
-     - `${NIXOS_VERSION}` con il valore di `env.conf` (`system.stateVersion` in `configuration.nix`)
-     - `${DISK_DEVICE}` con il valore di `env.conf` (esempio di configurazione disco)
+`--list-features` elenca i moduli senza scaricare il template né produrre configurazioni. `FEATURES` è una lista separata da virgole: `photo_editing`, `video_editing`, `development`, `recording`, `container_tools`, `distrobox`, `virtualization_tools`, `extra_packages_services`, `kde_packages`, `gamestation_packages`, `external_monitor`, `unstable_temporary_packages`, `docker`, `libvirt`, `audio`, `audio_airplay`, `audio_chromecast`, `bluetooth`. Distrobox importa Docker; gli strumenti di virtualizzazione non abilitano automaticamente libvirt. Le funzionalità audio di streaming importano anche il modulo audio quando non è fornito da un desktop locale.
 
-8. **Layout disco opzionale**
-   - Permette facoltativamente di scegliere uno dei layout disco (Disko) da `nixos_configs/hosts/disk_configurations/` (ext4/btrfs, con o senza LUKS) e lo copia nella nuova cartella host.
+`DESKTOP` accetta `none`, `kde`, `gnome`, `hyprland`. RDP, WiFi, Syncthing, snapshot/scrub/Assistant Btrfs e batteria hanno flag indipendenti. Btrfs Assistant richiede snapshot e un desktop locale oppure RDP. Snapshot e scrub richiedono Btrfs quando viene scelta una ricetta disco; anche con hardware fornito devono esistere configurazioni snapshot effettive quando sono richieste. Per ARM serve `CPU_VENDOR=generic`; Steam è supportato solo su `x86_64-linux`.
 
-9. **Chiede username e password**
-   - Chiede all'utente di inserire un nome utente (il valore `USER` di `env.conf` viene proposto come default) e lo valida come nome utente Linux valido.
-   - Facoltativamente chiede la password (con conferma), genera un hash SHA-512 usando `mkpasswd`, `openssl` o `python3` (quello disponibile) e lo salva come valore di `user_hashedPassword` in `secrets/common.yaml.template`. L'hash non entra mai nei file `.nix`: all'attivazione `user.nix` lo legge dal file `secrets/common.yaml` cifrato con sops, che viene creato da quel template durante il setup dei segreti (vedi `common/config/SECRETS.it.md` del template).
+`CHARGE_LIMIT_MODE` accetta `none` (predefinito, nessun limite di carica) oppure `thresholds` (soglie percentuali generiche opzionali di inizio/fine carica). La soglia iniziale deve essere inferiore a quella finale; le impostazioni specifiche dell'hardware appartengono alla configurazione dell'host.
 
-10. **Duplica cartella utente**
-    - Copia la cartella `XYZ` dentro `nixos_configs/users/` e la rinomina con il nome utente specificato.
-    - Rinomina il file `user.nix` in `<username>.nix` nella nuova cartella utente.
-    - Nel file `<username>.nix` sostituisce `${USER}`, `${DICTIONARY}` e `${BASEPATHUSER}`.
+`DISK_LAYOUT` vuoto seleziona `single-disk-ext4` per i client oppure `btrfs-worker-luks` per i server. `none` esplicito richiede `--hardware-configuration` con i filesystem della destinazione. Altrimenti accetta il nome senza `.nix` di una ricetta sotto `hosts/disk_configurations/`. Tutte le ricette rimangono disponibili nell'output e quella selezionata viene copiata nell'host come `disk-layout.nix`. Le ricette BIOS richiedono GRUB; quelle UEFI richiedono systemd-boot oppure Lanzaboote. `/dev/sda` diventa `sda`, `/dev/disk/by-id/...` diventa `disk/by-id/...`, perché le ricette aggiungono `/dev/`. Nessuna ricetta viene eseguita.
 
-11. **Importa l'utente nell'host**
-    - Facoltativamente sostituisce l'import `../../users/XYZ/user.nix` nel `configuration.nix` dell'host con il nuovo file utente.
+`SSH_ALLOWED_CIDRS` e `RDP_ALLOWED_CIDRS` accettano liste IPv4/IPv6 separate da virgole, senza identificatori scope IPv6. Il server richiede CIDR SSH. RDP richiede CIDR e usa quelli SSH se la propria lista è vuota. Sul client, CIDR SSH vuoti conservano il comportamento firewall nativo; quelli compilati attivano il filtro dell'host. I filtri seguono le porte `SSH_PORT` e `RDP_PORT`. I servizi SSH/RDP abilitati devono usare porte diverse e non possono usare le porte Syncthing `22222` o `8843` quando Syncthing è abilitato.
 
-Infine, lo script stampa i passaggi manuali rimanenti e termina con `exit 0`.
+Gli SSID WiFi sono inseriti come stringhe Nix con escaping; vengono rifiutati caratteri di controllo e, per reti abilitate, SSID oltre 32 byte UTF-8. Gli esempi Syncthing disabilitano discovery locale/globale e relay: un Device ID compilato richiede un endpoint fisso `tcp://`, `tcp4://` o `tcp6://` con porta valida. Con ID vuoto non vengono creati device o cartella remoti. Il percorso dei dati di lavoro sul server deve essere `WORK_ROOT/data`; il client può usare un altro percorso assoluto. Non vengono aperte porte Syncthing in ingresso.
 
----
+| Parametro | Default prima dei valori derivati dal ruolo |
+|---|---|
+| `HOST_ROLE` | `client` |
+| `HOSTNAME` | `nixos` |
+| `DESKTOP` | `none` |
+| `FEATURES` | `(empty)` |
+| `ADMIN_USER` | `admin` |
+| `ADMIN_UID` | `1000` |
+| `ADMIN_GID` | `1000` |
+| `WORKER_USER` | `worker` |
+| `WORKER_UID` | `1100` |
+| `WORKER_GID` | `1100` |
+| `WORK_GROUP` | `worker-work` |
+| `WORK_GID` | `1200` |
+| `WORK_ROOT` | `/srv/worker` |
+| `TIMEZONE` | `Europe/Rome` |
+| `DEFAULT_LOCALE` | `it_IT.UTF-8` |
+| `KEY_LAYOUT` | `it` |
+| `FONT` | `nerd-fonts.code-new-roman` |
+| `NIXOS_VERSION` | `26.05` |
+| `SSH_PORT` | `22` |
+| `SSH_ALLOWED_CIDRS` | `(empty)` |
+| `DICTIONARY` | `it_IT` |
+| `BASEPATHUSER` | `/home` |
+| `ENABLE_RDP` | `false` |
+| `RDP_PORT` | `3389` |
+| `RDP_ALLOWED_CIDRS` | `(empty)` |
+| `ENABLE_WIFI` | `false` |
+| `WIFI_SSID` | `(empty)` |
+| `ENABLE_SYNCTHING` | `false` |
+| `SYNCTHING_DEVICE_ID` | `(empty)` |
+| `SYNCTHING_ADDRESS` | `dynamic` |
+| `SYNCTHING_FOLDER_PATH` | `(empty)` |
+| `SYNCTHING_FOLDER_ID` | `work-data` |
+| `ENABLE_SNAPSHOTS` | `false` |
+| `ENABLE_SCRUB` | `false` |
+| `ENABLE_BTRFS_ASSISTANT` | `false` |
+| `ENABLE_BATTERY` | `false` |
+| `MAX_JOBS` | `(empty)` |
+| `BUILD_CORES` | `(empty)` |
+| `ENABLE_ZRAM` | `true` |
+| `ZRAM_PERCENT` | `(empty)` |
+| `ZRAM_ALGORITHM` | `(empty)` |
+| `DISK_LAYOUT` | `(empty)` |
+| `DISK_DEVICE` | `sda` |
+| `SWAP_SIZE` | `16G` |
+| `BOOT_LOADER` | `systemd-boot` |
+| `CPU_VENDOR` | `generic` |
+| `PLATFORM` | `x86_64-linux` |
+| `CHARGE_LIMIT_MODE` | `none` |
+| `CHARGE_START_THRESHOLD` | `75` |
+| `CHARGE_STOP_THRESHOLD` | `80` |
 
-## Requisiti
+## Hardware e segreti cifrati
 
-- `bash`
-- `git` (opzionale: serve solo per clonare/aggiornare automaticamente il repository template)
-- uno tra `mkpasswd`, `openssl` o `python3` (solo se lasci che sia lo script a generare l'hash della password; nota che il modulo `crypt` usato dal fallback `python3` è stato rimosso in Python 3.13)
+`--hardware-configuration PERCORSO` copia una dichiarazione hardware fornita. In sua assenza rimane l'esempio hardware generico, da verificare sulla macchina reale. `DISK_LAYOUT=none` viene rifiutato senza `--hardware-configuration`; la dichiarazione fornita deve comprendere i filesystem della destinazione. Le ricette predefinite dichiarano il filesystem root senza eseguire operazioni sui dischi. `PLATFORM` viene sempre registrato come default dell’host; architetture diverse dichiarate nell’hardware fornito vengono rifiutate. Scegliere GRUB richiede anche una ricetta BIOS esplicita; il layout vuoto predefinito è UEFI.
 
----
+Senza `--secrets-dir`, rimangono soltanto `secrets/*.yaml.template` e `.sops.yaml.template`; `PREPARATION.md` indica che il setup è incompleto. Segui la guida SOPS dell'output, compila gli esempi localmente e cifrali prima di creare i file YAML attivi. Nessun file di segreti in chiaro viene creato automaticamente; non vengono richieste o generate password o chiavi private.
 
-## Utilizzo
+```bash
+./nixos_configs_generator.sh \
+  --template-dir /percorso/template --output /percorso/nuovo-output \
+  --set HOSTNAME=desk \
+  --secrets-dir /percorso/input-cifrati --require-secrets
+```
 
-1. **Scarica** i file dal repository [another_nixos_configurations_template](https://github.com/palumbou/another_nixos_configurations_template) (branch **26.05**) o lascia che sia lo script a effettuare automaticamente il clone del repository.
-2. **Modifica** il file `env.conf` con i valori desiderati.
-3. **Scarica** lo script `nixos_configs_generator.sh`.
-4. **Verifica** che lo script abbia i permessi di esecuzione.
-5. **Esegui** lo script (eventualmente passando il branch del template come primo argomento) e segui le istruzioni a schermo.
+La directory deve contenere `common.yaml` e `HOSTNAME.yaml`. Vengono controllati struttura SOPS cifrata, valori principali cifrati e campi richiesti: `admin_hashedPassword`, `admin_ssh_publicKey` nel comune; `worker_hashedPassword`, `worker_ssh_publicKey` nell'host server; `wifi_env` quando WiFi è abilitato. Vengono copiati soltanto i due YAML. Nessun valore viene decifrato; autenticità crittografica, destinatari e correttezza operativa non sono verificabili da questo controllo. File in chiaro o campi richiesti mancanti vengono rifiutati. `--require-secrets` rende obbligatori gli input cifrati.
 
----
+Puoi fornire insieme `--admin-age-recipient age1...` e `--host-age-recipient age1...` per preparare `.sops.yaml` dal template usando soltanto destinatari pubblici. Altrimenti configura quel file manualmente. Le chiavi private restano fuori dal repository e dall'output. La destinazione deve già possedere l'identità SSH host corretta per SOPS; questo strumento non la crea né la installa.
 
-## Passaggi manuali dopo lo script
+## Output e verifica
 
-Lo script prepara i file, ma alcune scelte restano manuali (vedi l'**HOWTO** del template):
+L'output contiene solo la categoria host selezionata, le directory account esplicite, i moduli condivisi e le ricette. I template dei parametri diventano file `.nix`; quelli SOPS conservano il suffisso. I placeholder maiuscoli dichiarati vengono sostituiti, le interpolazioni native Nix conservate; placeholder sconosciuti o residui interrompono la preparazione. Gli esempi nella documentazione restano generici e possono riferirsi alla struttura sorgente originale.
 
-- abilitare gli import desiderati in `nixos_configs/hosts/<hostname>/configuration.nix` (GUI: Gnome/KDE/Hyprland, gaming, workstation, Syncthing, monitor esterno, GRUB, layout disco Disko, Secure Boot, ...);
-- impostare il device del bootloader (o la configurazione Disko/hardware) per la propria macchina;
-- configurare i segreti seguendo `common/config/SECRETS.it.md` del template: generare la chiave age admin, rinominare `.sops.yaml.template` in `.sops.yaml` e inserire le chiavi, poi copiare `secrets/common.yaml.template` in `secrets/common.yaml`, compilare i valori (PSK WiFi, hash della password se non generato dallo script) e cifrarlo con sops;
-- dichiarare le reti WiFi di ogni host nel suo `nm_configurations.nix` (le PSK sono referenziate come variabili `$WIFI_*` dal file dei segreti cifrato);
-- personalizzare `syncthing.nix`, i dotfiles e gli altri moduli opzionali.
+Prima di spostare i file generati nella cartella indicata con `--output`, il generatore analizza la sintassi di ogni file Nix e valuta la configurazione NixOS dell’host selezionato. Controlla così gli import effettivi dei moduli, i tipi delle opzioni, le asserzioni, la compatibilità della piattaforma e gli attributi dei pacchetti scelti. Fuso orario, locale e layout tastiera vengono verificati nei cataloghi del nixpkgs selezionato. Un controllo fallito non lascia la directory di output. Il recupero dei moduli con versione fissata o dei dati dei cataloghi può richiedere accesso alla rete oppure una cache Nix già disponibile. Gli output mancanti dei cataloghi vengono recuperati dai sostituti Nix, con builder locali e remoti disabilitati.
 
----
+Per la valutazione i percorsi dei file SOPS vengono sostituiti con un placeholder sintetico `{}` esterno all'output. La sua directory sorgente temporanea viene eliminata al termine della verifica; la copia innocua nel Nix store può restare in cache. La valutazione Nix non decifra né controlla i valori dei segreti reali; gli YAML cifrati forniti ricevono soltanto i controlli strutturali descritti sopra. Destinatari, autenticità e decifratura vanno verificati separatamente sulla destinazione. `preparation.json` registra scelte pubbliche, nixpkgs selezionato ed esiti dei controlli. La derivazione di sistema riportata riguarda solo la verifica con percorsi segreti placeholder e non è un artefatto per l'installazione. `PREPARATION.md` registra i prerequisiti restanti. Una valutazione riuscita non sostituisce la build o i controlli sulla macchina reale.
 
-## Piani Futuri
+## Test
 
-Nelle prossime versioni prevedo di **ampliare** lo script per supportare ulteriori scelte e automatizzare ulteriori fasi della configurazione.
+I test automatici sono conservati sotto [tests/](tests/README.it.md). La loro guida spiega cosa controllano, come eseguire le suite unitarie e quelle sul template reale e quali prerequisiti servono. Sono file per lo sviluppo: il generatore non li esegue e non li copia nell'output.
+
+## Fonti e licenze
+
+Il bootstrap portabile utilizza [nix-portable](https://github.com/DavHau/nix-portable), sviluppato da DavHau, nella release [v012](https://github.com/DavHau/nix-portable/releases/tag/v012). La sua implementazione è distribuita con [licenza MIT](https://raw.githubusercontent.com/DavHau/nix-portable/v012/LICENSE), copyright (c) 2021 DavHau. Il launcher scarica l'eseguibile originale upstream; né l'eseguibile né il codice di implementazione upstream sono inclusi in questo repository.
+
+Il generatore conserva la propria [licenza CC BY-NC 4.0](LICENSE). Questa licenza riguarda codice e documentazione propri del generatore; nix-portable e i programmi inclusi o scaricati mantengono le rispettive licenze. Non vengono ridistribuiti sotto CC BY-NC. Chi ridistribuisce codice o eseguibili upstream deve conservare le attribuzioni applicabili e rispettare le licenze dei componenti inclusi.
